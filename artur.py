@@ -173,6 +173,9 @@ def main():
     if TEST:
         os.environ["SDL_VIDEODRIVER"] = "dummy"
         os.environ["SDL_AUDIODRIVER"] = "dummy"
+    else:
+        os.environ["SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS"] = "0"
+        os.environ["SDL_VIDEO_WINDOW_POS"] = "0,0"
     import pygame
     pygame.init()
     audio_ok = False if TEST else init_audio(pygame)
@@ -180,7 +183,8 @@ def main():
     if TEST:
         screen = pygame.display.set_mode((1280, 720))
     else:
-        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        info = pygame.display.Info()
+        screen = pygame.display.set_mode((info.current_w, info.current_h), pygame.NOFRAME)
         try:
             pygame.event.set_grab(True)
         except Exception:
@@ -234,6 +238,8 @@ def main():
         base_imgs.append(s)
 
     songs = asset_files(SND_EXT)
+    pref = {".ogg": 0, ".wav": 1, ".mp3": 2}
+    songs.sort(key=lambda p: pref.get(os.path.splitext(p)[1].lower(), 9))
     song_i = [0]
 
     def next_song():
