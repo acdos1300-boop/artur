@@ -14,7 +14,7 @@ jobs:
       - shell: bash
         run: |
           args=""
-          for f in *.jpg *.jpeg *.png *.mp3; do
+          for f in *.jpg *.jpeg *.png *.ogg *.wav *.mp3; do
             [ -f "$f" ] && args="$args --add-data $f;."
           done
           pyinstaller --onefile --noconsole --hidden-import comtypes --hidden-import pycaw $args --name ARTUR artur.py
