@@ -16,6 +16,17 @@ IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 SND_EXT = (".mp3", ".ogg", ".wav")
 
 
+def asset_files(exts):
+    out = []
+    try:
+        for f in sorted(os.listdir(BASE)):
+            if f.lower().endswith(exts):
+                out.append(os.path.join(BASE, f))
+    except Exception:
+        pass
+    return out
+
+
 def get_volume_ctl():
     if TEST:
         return None
@@ -40,143 +51,189 @@ def hold_volume(ctl, level):
         pass
 
 
-def files(folder, ext):
-    out = []
-    for root in (folder, os.path.join(folder, "photos"), os.path.join(folder, "music")):
-        if os.path.isdir(root):
-            out += [os.path.join(root, f) for f in sorted(os.listdir(root)) if f.lower().endswith(ext)]
-    return out
+def win_refocus(hwnd):
+    if not hwnd:
+        return
+    try:
+        import ctypes
+        u = ctypes.windll.user32
+        u.ShowWindow(hwnd, 9)
+        u.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002)
+        u.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
 
 
-PHOTOS = BASE
-MUSIC = BASE
+def win_topmost(hwnd):
+    if not hwnd:
+        return
+    try:
+        import ctypes
+        ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002)
+    except Exception:
+        pass
 
 
 def ask():
     if TEST:
         return
-    import tkinter as tk
-    from tkinter import messagebox
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    if not messagebox.askyesno("DANCE.EXE", "Хочешь танцевать?", parent=root):
-        messagebox.askyesno("DANCE.EXE", "Точно нет?", parent=root)
-    root.destroy()
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        if not messagebox.askyesno("DANCE.EXE", "Хочешь танцевать?", parent=root):
+            messagebox.askyesno("DANCE.EXE", "Точно нет?", parent=root)
+        root.destroy()
+    except Exception:
+        pass
 
 
-def grab_desktop(w, h):
+def grab_desktop(pygame, w, h):
     try:
         from PIL import ImageGrab
-        img = ImageGrab.grab().convert("RGB").resize((w, h))
-        import pygame
-        return pygame.image.fromstring(img.tobytes(), img.size, "RGB")
+        img = ImageGrab.grab().convert("RGB")
+        surf = pygame.image.fromstring(img.tobytes(), img.size, "RGB")
+        return pygame.transform.smoothscale(surf, (w, h)).convert()
     except Exception:
         return None
 
 
 class Flyer:
-    def __init__(self, img, sw, sh):
-        self.base = img
+    def __init__(self, base_img, pygame, sw, sh):
+        size = int(sh * random.uniform(0.24, 0.34))
+        bw, bh = base_img.get_size()
+        sc = size / max(bw, bh)
+        self.img = pygame.transform.smoothscale(base_img, (max(1, int(bw * sc)), max(1, int(bh * sc))))
+        self.r = max(self.img.get_size()) * 0.5
         self.sw, self.sh = sw, sh
-        self.size = random.uniform(0.28, 0.5) * sh
-        self.x = random.uniform(0.2, 0.8) * sw
-        self.y = random.uniform(0.2, 0.8) * sh
-        sp = random.uniform(260, 520)
+        self.x = random.uniform(self.r, sw - self.r)
+        self.y = random.uniform(self.r, sh - self.r)
+        sp = random.uniform(230, 440)
         a = random.uniform(0, math.tau)
         self.vx, self.vy = math.cos(a) * sp, math.sin(a) * sp
-        self.rot = random.uniform(-20, 20)
-        self.vr = random.uniform(-60, 60)
-        self.t = random.uniform(0, 10)
-        self.born = 0.0
+        self.rot = random.uniform(0, 360)
+        self.vr = random.uniform(-45, 45)
+        self._bucket = None
+        self._surf = pygame.transform.rotate(self.img, self.rot)
 
     def update(self, dt):
-        self.t += dt
-        self.born = min(1.0, self.born + dt * 3)
         self.x += self.vx * dt
         self.y += self.vy * dt
         self.rot += self.vr * dt
-        r = self.size * 0.45
-        if self.x < r or self.x > self.sw - r:
-            self.vx *= -1
-            self.vr = random.uniform(-90, 90)
-            self.x = max(r, min(self.sw - r, self.x))
-        if self.y < r or self.y > self.sh - r:
-            self.vy *= -1
-            self.vr = random.uniform(-90, 90)
-            self.y = max(r, min(self.sh - r, self.y))
+        if self.x < self.r:
+            self.x = self.r
+            self.vx = abs(self.vx)
+        elif self.x > self.sw - self.r:
+            self.x = self.sw - self.r
+            self.vx = -abs(self.vx)
+        if self.y < self.r:
+            self.y = self.r
+            self.vy = abs(self.vy)
+        elif self.y > self.sh - self.r:
+            self.y = self.sh - self.r
+            self.vy = -abs(self.vy)
 
-    def draw(self, screen, pygame, beat):
-        k = self.born * (1 + 0.08 * beat + 0.04 * math.sin(self.t * 7))
-        bw, bh = self.base.get_size()
-        scale = self.size * k / max(bw, bh)
-        img = pygame.transform.rotozoom(self.base, self.rot, scale)
-        rect = img.get_rect(center=(int(self.x), int(self.y)))
-        screen.blit(img, rect)
+    def draw(self, screen, pygame):
+        b = int(self.rot) // 5
+        if b != self._bucket:
+            self._bucket = b
+            self._surf = pygame.transform.rotate(self.img, self.rot)
+        screen.blit(self._surf, self._surf.get_rect(center=(int(self.x), int(self.y))))
 
 
 def main():
     ask()
-    vol_ctl = get_volume_ctl()
-    hold_volume(vol_ctl, VOLUME)
+    vol = get_volume_ctl()
+    hold_volume(vol, VOLUME)
+
     if TEST:
         os.environ["SDL_VIDEODRIVER"] = "dummy"
         os.environ["SDL_AUDIODRIVER"] = "dummy"
     import pygame
+    try:
+        pygame.mixer.pre_init(44100, -16, 2, 512)
+    except Exception:
+        pass
     pygame.init()
+    try:
+        pygame.mixer.init()
+    except Exception:
+        pass
+
     if TEST:
         screen = pygame.display.set_mode((1280, 720))
+        desk = None
     else:
-        info = pygame.display.Info()
-        sw0, sh0 = info.current_w, info.current_h
-        desk = grab_desktop(sw0 // 2, sh0 // 2)
         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        sw0, sh0 = screen.get_size()
+        desk = grab_desktop(pygame, sw0, sh0)
         try:
             pygame.event.set_grab(True)
         except Exception:
             pass
     sw, sh = screen.get_size()
-    if TEST:
-        desk = None
     pygame.display.set_caption("ARTUR")
     pygame.mouse.set_visible(False)
 
-    photos = []
-    for p in files(PHOTOS, IMG_EXT):
+    hwnd = None
+    if not TEST:
         try:
-            img = pygame.image.load(p).convert_alpha()
-            bw, bh = img.get_size()
-            m = 700 / max(bw, bh)
-            if m < 1:
-                img = pygame.transform.smoothscale(img, (int(bw * m), int(bh * m)))
-            frame = pygame.Surface((img.get_width() + 16, img.get_height() + 16), pygame.SRCALPHA)
-            frame.fill((255, 255, 255))
-            frame.blit(img, (8, 8))
-            photos.append(frame)
+            hwnd = pygame.display.get_wm_info().get("window")
+        except Exception:
+            hwnd = None
+    win_refocus(hwnd)
+
+    desk_big = None
+    if desk is not None:
+        try:
+            desk_big = pygame.transform.smoothscale(desk, (int(sw * 1.12), int(sh * 1.12))).convert()
+        except Exception:
+            desk_big = None
+        try:
+            desk.set_alpha(185)
+            if desk_big is not None:
+                desk_big.set_alpha(185)
         except Exception:
             pass
-    if not photos:
-        s = pygame.Surface((400, 400), pygame.SRCALPHA)
-        s.fill((255, 255, 255))
-        f = pygame.font.SysFont("arial", 60, bold=True)
-        t = f.render("ARTUR", True, (200, 0, 80))
-        s.blit(t, t.get_rect(center=(200, 200)))
-        photos.append(s)
 
-    songs = files(MUSIC, SND_EXT)
-    random.shuffle(songs)
-    song_i = 0
+    base_imgs = []
+    for p in asset_files(IMG_EXT):
+        try:
+            img = pygame.image.load(p).convert()
+            bw, bh = img.get_size()
+            m = (sh * 0.5) / max(bw, bh)
+            if m < 1:
+                img = pygame.transform.smoothscale(img, (int(bw * m), int(bh * m)))
+            bw, bh = img.get_size()
+            frame = pygame.Surface((bw + 16, bh + 16), pygame.SRCALPHA)
+            frame.fill((255, 255, 255))
+            frame.blit(img, (8, 8))
+            base_imgs.append(frame)
+        except Exception:
+            pass
+    if not base_imgs:
+        s = pygame.Surface((420, 420), pygame.SRCALPHA)
+        s.fill((255, 255, 255))
+        f = pygame.font.SysFont("arial", 70, bold=True)
+        tx = f.render("ARTUR", True, (210, 0, 70))
+        s.blit(tx, tx.get_rect(center=(210, 210)))
+        base_imgs.append(s)
+
+    songs = asset_files(SND_EXT)
+    song_i = [0]
 
     def next_song():
-        nonlocal song_i
         if not songs:
             return
         try:
-            pygame.mixer.music.load(songs[song_i % len(songs)])
+            pygame.mixer.music.load(songs[song_i[0] % len(songs)])
+            pygame.mixer.music.set_volume(1.0)
             pygame.mixer.music.play()
         except Exception:
             pass
-        song_i += 1
+        song_i[0] += 1
 
     MUSIC_END = pygame.USEREVENT + 1
     try:
@@ -185,59 +242,67 @@ def main():
         pass
     next_song()
 
-    colors = [(170, 20, 200), (10, 90, 120), (30, 170, 40), (200, 20, 50), (240, 120, 0), (20, 40, 200)]
-    flyers = [Flyer(random.choice(photos), sw, sh)]
+    colors = [(170, 20, 200), (10, 90, 150), (30, 170, 60), (210, 20, 60), (240, 130, 0), (20, 40, 200)]
+    flyers = [Flyer(random.choice(base_imgs), pygame, sw, sh) for _ in range(3)]
     clock = pygame.time.Clock()
     t = 0.0
     spawn = 0.0
+    last_vol = -1.0
+    last_focus = 0.0
     frames = 0
     running = True
-    tint = pygame.Surface((sw, sh))
-    last_vol = -1.0
+
+    FOCUS_LOST = getattr(pygame, "WINDOWFOCUSLOST", -999)
+    MINIMIZED = getattr(pygame, "WINDOWMINIMIZED", -998)
 
     while running:
-        dt = min(clock.tick(60) / 1000, 0.05)
+        dt = min(clock.tick(60) / 1000.0, 0.05)
         t += dt
         frames += 1
+
         if t - last_vol > 0.2:
             last_vol = t
-            hold_volume(vol_ctl, VOLUME)
+            hold_volume(vol, VOLUME)
+        if not TEST and t - last_focus > 0.5:
+            last_focus = t
+            win_topmost(hwnd)
+
         for e in pygame.event.get():
             if e.type == pygame.KEYDOWN and e.key == pygame.K_q:
                 mods = pygame.key.get_mods()
-                if mods & pygame.KMOD_CTRL and mods & pygame.KMOD_SHIFT:
+                if (mods & pygame.KMOD_CTRL) and (mods & pygame.KMOD_SHIFT):
                     running = False
             elif e.type == MUSIC_END:
                 next_song()
+            elif e.type == FOCUS_LOST or e.type == MINIMIZED:
+                win_refocus(hwnd)
         if t >= DURATION:
             running = False
 
-        beat = max(0.0, math.sin(t * math.pi * 2 * 2)) ** 4
+        beat = max(0.0, math.sin(t * math.pi * 4)) ** 4
 
-        ci = int(t / 1.2) % len(colors)
+        ci = int(t / 1.1) % len(colors)
         cn = (ci + 1) % len(colors)
-        f = (t / 1.2) % 1
-        col = tuple(int(colors[ci][i] * (1 - f) + colors[cn][i] * f) for i in range(3))
+        fr = (t / 1.1) % 1
+        col = tuple(int(colors[ci][i] * (1 - fr) + colors[cn][i] * fr) for i in range(3))
         screen.fill(col)
 
         if desk is not None:
-            ang = math.sin(t * 1.7) * 12
-            zoom = 2.3 + 0.15 * math.sin(t * 2.3)
-            d = pygame.transform.rotozoom(desk, ang, zoom)
-            d.set_alpha(150)
-            screen.blit(d, d.get_rect(center=(sw // 2 + int(math.sin(t * 3) * 40), sh // 2)))
-            tint.fill(col)
-            tint.set_alpha(90)
-            screen.blit(tint, (0, 0))
+            amp = 10 + 34 * beat
+            ox = int(math.sin(t * 22) * amp) + random.randint(-3, 3)
+            oy = int(math.cos(t * 19) * amp) + random.randint(-3, 3)
+            if beat > 0.5 and desk_big is not None:
+                screen.blit(desk_big, (-int(sw * 0.06) + ox, -int(sh * 0.06) + oy))
+            else:
+                screen.blit(desk, (ox, oy))
 
         spawn += dt
-        if spawn > 2.5 and len(flyers) < 12:
-            spawn = 0
-            flyers.append(Flyer(random.choice(photos), sw, sh))
-
+        if spawn > 2.2 and len(flyers) < 8:
+            spawn = 0.0
+            flyers.append(Flyer(random.choice(base_imgs), pygame, sw, sh))
         for fl in flyers:
             fl.update(dt)
-            fl.draw(screen, pygame, beat)
+            fl.draw(screen, pygame)
 
         pygame.display.flip()
         if TEST and frames > 240:
@@ -249,9 +314,7 @@ def main():
     except Exception:
         pass
     pygame.quit()
-    if TEST:
-        print("ok", frames, "frames,", len(flyers), "photos flying")
 
 
 if __name__ == "__main__":
-    main() 
+    main()
