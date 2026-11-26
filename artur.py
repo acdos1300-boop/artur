@@ -11,8 +11,33 @@ else:
     BASE = os.path.dirname(os.path.abspath(__file__))
 
 DURATION = 40
+VOLUME = 0.6
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 SND_EXT = (".mp3", ".ogg", ".wav")
+
+
+def get_volume_ctl():
+    if TEST:
+        return None
+    try:
+        from ctypes import cast, POINTER
+        from comtypes import CLSCTX_ALL
+        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+        dev = AudioUtilities.GetSpeakers()
+        iface = dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        return cast(iface, POINTER(IAudioEndpointVolume))
+    except Exception:
+        return None
+
+
+def hold_volume(ctl, level):
+    if not ctl:
+        return
+    try:
+        ctl.SetMute(0, None)
+        ctl.SetMasterVolumeLevelScalar(level, None)
+    except Exception:
+        pass
 
 
 def files(folder, ext):
@@ -92,6 +117,8 @@ class Flyer:
 
 def main():
     ask()
+    vol_ctl = get_volume_ctl()
+    hold_volume(vol_ctl, VOLUME)
     if TEST:
         os.environ["SDL_VIDEODRIVER"] = "dummy"
         os.environ["SDL_AUDIODRIVER"] = "dummy"
@@ -166,11 +193,15 @@ def main():
     frames = 0
     running = True
     tint = pygame.Surface((sw, sh))
+    last_vol = -1.0
 
     while running:
         dt = min(clock.tick(60) / 1000, 0.05)
         t += dt
         frames += 1
+        if t - last_vol > 0.2:
+            last_vol = t
+            hold_volume(vol_ctl, VOLUME)
         for e in pygame.event.get():
             if e.type == pygame.KEYDOWN and e.key == pygame.K_q:
                 mods = pygame.key.get_mods()
@@ -223,4 +254,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main() 
