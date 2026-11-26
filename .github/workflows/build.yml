@@ -11,11 +11,13 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pygame pillow pyinstaller pycaw comtypes
-      - shell: pwsh
+      - shell: bash
         run: |
-          $data = @()
-          Get-ChildItem -Path . -Include *.jpg,*.jpeg,*.png,*.mp3 -File | ForEach-Object { $data += "--add-data"; $data += "$($_.Name);." }
-          pyinstaller --onefile --noconsole --hidden-import comtypes --hidden-import pycaw @data --name ARTUR artur.py
+          args=""
+          for f in *.jpg *.jpeg *.png *.mp3; do
+            [ -f "$f" ] && args="$args --add-data $f;."
+          done
+          pyinstaller --onefile --noconsole --hidden-import comtypes --hidden-import pycaw $args --name ARTUR artur.py
       - uses: actions/upload-artifact@v4
         with:
           name: ARTUR-exe
