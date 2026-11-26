@@ -13,7 +13,7 @@ else:
 DURATION = 40
 VOLUME = 0.6
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
-SND_EXT = (".mp3", ".ogg", ".wav")
+SND_EXT = (".ogg", ".wav", ".mp3")
 
 
 def asset_files(exts):
@@ -51,25 +51,25 @@ def hold_volume(ctl, level):
         pass
 
 
-def win_refocus(hwnd):
+def force_foreground(hwnd):
     if not hwnd:
         return
     try:
         import ctypes
         u = ctypes.windll.user32
+        k = ctypes.windll.kernel32
         u.ShowWindow(hwnd, 9)
         u.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002)
-        u.SetForegroundWindow(hwnd)
-    except Exception:
-        pass
-
-
-def win_topmost(hwnd):
-    if not hwnd:
-        return
-    try:
-        import ctypes
-        ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002)
+        fg = u.GetForegroundWindow()
+        t1 = u.GetWindowThreadProcessId(fg, 0)
+        t2 = k.GetCurrentThreadId()
+        if t1 and t1 != t2:
+            u.AttachThreadInput(t1, t2, True)
+            u.BringWindowToTop(hwnd)
+            u.SetForegroundWindow(hwnd)
+            u.AttachThreadInput(t1, t2, False)
+        else:
+            u.SetForegroundWindow(hwnd)
     except Exception:
         pass
 
@@ -90,14 +90,35 @@ def ask():
         pass
 
 
-def grab_desktop(pygame, w, h):
+def grab_desktop_pil():
+    if TEST:
+        return None
     try:
         from PIL import ImageGrab
-        img = ImageGrab.grab().convert("RGB")
-        surf = pygame.image.fromstring(img.tobytes(), img.size, "RGB")
-        return pygame.transform.smoothscale(surf, (w, h)).convert()
+        return ImageGrab.grab().convert("RGB")
     except Exception:
         return None
+
+
+def init_audio(pygame):
+    try:
+        if pygame.mixer.get_init():
+            pygame.mixer.quit()
+    except Exception:
+        pass
+    try:
+        pygame.mixer.init(44100, -16, 2, 1024)
+        return True
+    except Exception:
+        pass
+    for drv in ("directsound", "wasapi", "winmm"):
+        try:
+            os.environ["SDL_AUDIODRIVER"] = drv
+            pygame.mixer.init(44100, -16, 2, 1024)
+            return True
+        except Exception:
+            continue
+    return False
 
 
 class Flyer:
@@ -145,6 +166,7 @@ class Flyer:
 
 def main():
     ask()
+    pil_desk = grab_desktop_pil()
     vol = get_volume_ctl()
     hold_volume(vol, VOLUME)
 
@@ -152,23 +174,13 @@ def main():
         os.environ["SDL_VIDEODRIVER"] = "dummy"
         os.environ["SDL_AUDIODRIVER"] = "dummy"
     import pygame
-    try:
-        pygame.mixer.pre_init(44100, -16, 2, 512)
-    except Exception:
-        pass
     pygame.init()
-    try:
-        pygame.mixer.init()
-    except Exception:
-        pass
+    audio_ok = False if TEST else init_audio(pygame)
 
     if TEST:
         screen = pygame.display.set_mode((1280, 720))
-        desk = None
     else:
         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-        sw0, sh0 = screen.get_size()
-        desk = grab_desktop(pygame, sw0, sh0)
         try:
             pygame.event.set_grab(True)
         except Exception:
@@ -183,20 +195,20 @@ def main():
             hwnd = pygame.display.get_wm_info().get("window")
         except Exception:
             hwnd = None
-    win_refocus(hwnd)
+    force_foreground(hwnd)
 
+    desk = None
     desk_big = None
-    if desk is not None:
+    if pil_desk is not None:
         try:
-            desk_big = pygame.transform.smoothscale(desk, (int(sw * 1.12), int(sh * 1.12))).convert()
+            surf = pygame.image.fromstring(pil_desk.tobytes(), pil_desk.size, "RGB")
+            desk = pygame.transform.smoothscale(surf, (sw, sh)).convert()
+            desk_big = pygame.transform.smoothscale(desk, (int(sw * 1.1), int(sh * 1.1))).convert()
+            desk.set_alpha(200)
+            desk_big.set_alpha(200)
         except Exception:
+            desk = None
             desk_big = None
-        try:
-            desk.set_alpha(185)
-            if desk_big is not None:
-                desk_big.set_alpha(185)
-        except Exception:
-            pass
 
     base_imgs = []
     for p in asset_files(IMG_EXT):
@@ -225,7 +237,7 @@ def main():
     song_i = [0]
 
     def next_song():
-        if not songs:
+        if not songs or not audio_ok:
             return
         try:
             pygame.mixer.music.load(songs[song_i[0] % len(songs)])
@@ -236,11 +248,12 @@ def main():
         song_i[0] += 1
 
     MUSIC_END = pygame.USEREVENT + 1
-    try:
-        pygame.mixer.music.set_endevent(MUSIC_END)
-    except Exception:
-        pass
-    next_song()
+    if audio_ok:
+        try:
+            pygame.mixer.music.set_endevent(MUSIC_END)
+        except Exception:
+            pass
+        next_song()
 
     colors = [(170, 20, 200), (10, 90, 150), (30, 170, 60), (210, 20, 60), (240, 130, 0), (20, 40, 200)]
     flyers = [Flyer(random.choice(base_imgs), pygame, sw, sh) for _ in range(3)]
@@ -248,7 +261,7 @@ def main():
     t = 0.0
     spawn = 0.0
     last_vol = -1.0
-    last_focus = 0.0
+    last_focus = -1.0
     frames = 0
     running = True
 
@@ -263,9 +276,9 @@ def main():
         if t - last_vol > 0.2:
             last_vol = t
             hold_volume(vol, VOLUME)
-        if not TEST and t - last_focus > 0.5:
+        if not TEST and t - last_focus > 0.12:
             last_focus = t
-            win_topmost(hwnd)
+            force_foreground(hwnd)
 
         for e in pygame.event.get():
             if e.type == pygame.KEYDOWN and e.key == pygame.K_q:
@@ -275,7 +288,7 @@ def main():
             elif e.type == MUSIC_END:
                 next_song()
             elif e.type == FOCUS_LOST or e.type == MINIMIZED:
-                win_refocus(hwnd)
+                force_foreground(hwnd)
         if t >= DURATION:
             running = False
 
@@ -288,11 +301,11 @@ def main():
         screen.fill(col)
 
         if desk is not None:
-            amp = 10 + 34 * beat
-            ox = int(math.sin(t * 22) * amp) + random.randint(-3, 3)
-            oy = int(math.cos(t * 19) * amp) + random.randint(-3, 3)
-            if beat > 0.5 and desk_big is not None:
-                screen.blit(desk_big, (-int(sw * 0.06) + ox, -int(sh * 0.06) + oy))
+            amp = 6 + 22 * beat
+            ox = int(math.sin(t * 24) * amp) + random.randint(-2, 2)
+            oy = int(math.cos(t * 21) * amp) + random.randint(-2, 2)
+            if beat > 0.55 and desk_big is not None:
+                screen.blit(desk_big, (-int(sw * 0.05) + ox, -int(sh * 0.05) + oy))
             else:
                 screen.blit(desk, (ox, oy))
 
