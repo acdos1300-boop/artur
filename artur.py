@@ -10,7 +10,7 @@ if getattr(sys, "frozen", False):
 else:
     BASE = os.path.dirname(os.path.abspath(__file__))
 
-DURATION = 40
+DURATION = 90
 VOLUME = 0.6
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 SND_EXT = (".ogg", ".wav", ".mp3")
@@ -31,6 +31,11 @@ def get_volume_ctl():
     if TEST:
         return None
     try:
+        import comtypes
+        try:
+            comtypes.CoInitialize()
+        except Exception:
+            pass
         from ctypes import cast, POINTER
         from comtypes import CLSCTX_ALL
         from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
@@ -39,6 +44,25 @@ def get_volume_ctl():
         return cast(iface, POINTER(IAudioEndpointVolume))
     except Exception:
         return None
+
+
+def set_volume_keys(pct):
+    if TEST:
+        return
+    try:
+        import ctypes
+        u = ctypes.windll.user32
+
+        def tap(vk):
+            u.keybd_event(vk, 0, 0, 0)
+            u.keybd_event(vk, 0, 2, 0)
+
+        for _ in range(52):
+            tap(0xAE)
+        for _ in range(max(0, int(round(pct / 2.0)))):
+            tap(0xAF)
+    except Exception:
+        pass
 
 
 def hold_volume(ctl, level):
@@ -168,6 +192,7 @@ def main():
     ask()
     pil_desk = grab_desktop_pil()
     vol = get_volume_ctl()
+    set_volume_keys(int(VOLUME * 100))
     hold_volume(vol, VOLUME)
 
     if TEST:
@@ -201,26 +226,14 @@ def main():
             hwnd = None
     force_foreground(hwnd)
 
-    tiles = []
+    desk = None
     if pil_desk is not None:
         try:
             surf = pygame.image.fromstring(pil_desk.tobytes(), pil_desk.size, "RGB")
             desk = pygame.transform.smoothscale(surf, (sw, sh)).convert()
-            cols, rows = 8, 5
-            tw, th = sw // cols, sh // rows
-            for r in range(rows):
-                for c in range(cols):
-                    x, y = c * tw, r * th
-                    w = tw if c < cols - 1 else sw - x
-                    h = th if r < rows - 1 else sh - y
-                    try:
-                        sub = desk.subsurface((x, y, w, h)).copy()
-                        sub.set_alpha(205)
-                        tiles.append([sub, x, y, random.uniform(0, math.tau)])
-                    except Exception:
-                        pass
+            desk.set_alpha(205)
         except Exception:
-            tiles = []
+            desk = None
 
     base_imgs = []
     for p in asset_files(IMG_EXT):
@@ -251,7 +264,7 @@ def main():
     if not TEST and sys.platform.startswith("win") and wav_songs:
         try:
             import winsound
-            winsound.PlaySound(wav_songs[0], winsound.SND_FILENAME | winsound.SND_ASYNC)
+            winsound.PlaySound(wav_songs[0], winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP)
             audio_mode = "winsound"
         except Exception:
             audio_mode = None
@@ -307,15 +320,11 @@ def main():
         col = tuple(int(colors[ci][i] * (1 - fr) + colors[cn][i] * fr) for i in range(3))
         screen.fill(col)
 
-        if tiles:
-            gx = int(math.sin(t * 7) * (2 + 6 * beat))
-            gy = int(math.cos(t * 6) * (2 + 6 * beat))
-            for tl in tiles:
-                sub, hx, hy, ph = tl
-                amp = 5 + 17 * beat
-                ox = int(math.sin(t * 11 + ph) * amp) + gx
-                oy = int(math.cos(t * 9 + ph * 1.3) * amp) + gy
-                screen.blit(sub, (hx + ox, hy + oy))
+        if desk is not None:
+            amp = 4 + 14 * beat
+            ox = int(math.sin(t * 20) * amp)
+            oy = int(math.cos(t * 17) * amp)
+            screen.blit(desk, (ox, oy))
 
         spawn += dt
         if spawn > 2.2 and len(flyers) < 8:
@@ -345,4 +354,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()        
+    main()
