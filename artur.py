@@ -51,18 +51,52 @@ def set_volume_keys(pct):
         return
     try:
         import ctypes
-        u = ctypes.windll.user32
+        import time
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        KEYEVENTF_KEYUP = 0x0002
+
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [("wVk", wintypes.WORD),
+                        ("wScan", wintypes.WORD),
+                        ("dwFlags", wintypes.DWORD),
+                        ("time", wintypes.DWORD),
+                        ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))]
+
+        class _I(ctypes.Union):
+            _fields_ = [("ki", KEYBDINPUT)]
+
+        class INPUT(ctypes.Structure):
+            _anonymous_ = ("i",)
+            _fields_ = [("type", wintypes.DWORD), ("i", _I)]
+
+        def send(vk, up):
+            inp = INPUT()
+            inp.type = 1
+            inp.ki = KEYBDINPUT(vk, 0, KEYEVENTF_KEYUP if up else 0, 0, None)
+            user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
 
         def tap(vk):
-            u.keybd_event(vk, 0, 0, 0)
-            u.keybd_event(vk, 0, 2, 0)
+            send(vk, False)
+            send(vk, True)
+            time.sleep(0.01)
 
-        for _ in range(52):
+        for _ in range(55):
             tap(0xAE)
         for _ in range(max(0, int(round(pct / 2.0)))):
             tap(0xAF)
     except Exception:
-        pass
+        try:
+            u = ctypes.windll.user32
+            for _ in range(55):
+                u.keybd_event(0xAE, 0, 0, 0)
+                u.keybd_event(0xAE, 0, 2, 0)
+            for _ in range(max(0, int(round(pct / 2.0)))):
+                u.keybd_event(0xAF, 0, 0, 0)
+                u.keybd_event(0xAF, 0, 2, 0)
+        except Exception:
+            pass
 
 
 def hold_volume(ctl, level):
