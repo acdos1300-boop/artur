@@ -1,0 +1,22 @@
+name: build-exe
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pygame pillow pyinstaller
+      - shell: pwsh
+        run: |
+          $data = @()
+          Get-ChildItem -Path . -Include *.jpg,*.jpeg,*.png,*.mp3 -File | ForEach-Object { $data += "--add-data"; $data += "$($_.Name);." }
+          pyinstaller --onefile --noconsole @data --name ARTUR artur.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARTUR-exe
+          path: dist/ARTUR.exe
