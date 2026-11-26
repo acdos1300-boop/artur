@@ -201,18 +201,26 @@ def main():
             hwnd = None
     force_foreground(hwnd)
 
-    desk = None
-    desk_big = None
+    tiles = []
     if pil_desk is not None:
         try:
             surf = pygame.image.fromstring(pil_desk.tobytes(), pil_desk.size, "RGB")
             desk = pygame.transform.smoothscale(surf, (sw, sh)).convert()
-            desk_big = pygame.transform.smoothscale(desk, (int(sw * 1.1), int(sh * 1.1))).convert()
-            desk.set_alpha(200)
-            desk_big.set_alpha(200)
+            cols, rows = 8, 5
+            tw, th = sw // cols, sh // rows
+            for r in range(rows):
+                for c in range(cols):
+                    x, y = c * tw, r * th
+                    w = tw if c < cols - 1 else sw - x
+                    h = th if r < rows - 1 else sh - y
+                    try:
+                        sub = desk.subsurface((x, y, w, h)).copy()
+                        sub.set_alpha(205)
+                        tiles.append([sub, x, y, random.uniform(0, math.tau)])
+                    except Exception:
+                        pass
         except Exception:
-            desk = None
-            desk_big = None
+            tiles = []
 
     base_imgs = []
     for p in asset_files(IMG_EXT):
@@ -237,29 +245,24 @@ def main():
         s.blit(tx, tx.get_rect(center=(210, 210)))
         base_imgs.append(s)
 
-    songs = asset_files(SND_EXT)
-    pref = {".ogg": 0, ".wav": 1, ".mp3": 2}
-    songs.sort(key=lambda p: pref.get(os.path.splitext(p)[1].lower(), 9))
-    song_i = [0]
-
-    def next_song():
-        if not songs or not audio_ok:
-            return
+    wav_songs = asset_files((".wav",))
+    other_songs = asset_files((".ogg", ".mp3"))
+    audio_mode = None
+    if not TEST and sys.platform.startswith("win") and wav_songs:
         try:
-            pygame.mixer.music.load(songs[song_i[0] % len(songs)])
+            import winsound
+            winsound.PlaySound(wav_songs[0], winsound.SND_FILENAME | winsound.SND_ASYNC)
+            audio_mode = "winsound"
+        except Exception:
+            audio_mode = None
+    if audio_mode is None and audio_ok and other_songs:
+        try:
+            pygame.mixer.music.load(other_songs[0])
             pygame.mixer.music.set_volume(1.0)
-            pygame.mixer.music.play()
+            pygame.mixer.music.play(-1)
+            audio_mode = "pygame"
         except Exception:
-            pass
-        song_i[0] += 1
-
-    MUSIC_END = pygame.USEREVENT + 1
-    if audio_ok:
-        try:
-            pygame.mixer.music.set_endevent(MUSIC_END)
-        except Exception:
-            pass
-        next_song()
+            audio_mode = None
 
     colors = [(170, 20, 200), (10, 90, 150), (30, 170, 60), (210, 20, 60), (240, 130, 0), (20, 40, 200)]
     flyers = [Flyer(random.choice(base_imgs), pygame, sw, sh) for _ in range(3)]
@@ -282,7 +285,7 @@ def main():
         if t - last_vol > 0.2:
             last_vol = t
             hold_volume(vol, VOLUME)
-        if not TEST and t - last_focus > 0.12:
+        if not TEST and t - last_focus > 0.05:
             last_focus = t
             force_foreground(hwnd)
 
@@ -291,8 +294,6 @@ def main():
                 mods = pygame.key.get_mods()
                 if (mods & pygame.KMOD_CTRL) and (mods & pygame.KMOD_SHIFT):
                     running = False
-            elif e.type == MUSIC_END:
-                next_song()
             elif e.type == FOCUS_LOST or e.type == MINIMIZED:
                 force_foreground(hwnd)
         if t >= DURATION:
@@ -306,14 +307,15 @@ def main():
         col = tuple(int(colors[ci][i] * (1 - fr) + colors[cn][i] * fr) for i in range(3))
         screen.fill(col)
 
-        if desk is not None:
-            amp = 6 + 22 * beat
-            ox = int(math.sin(t * 24) * amp) + random.randint(-2, 2)
-            oy = int(math.cos(t * 21) * amp) + random.randint(-2, 2)
-            if beat > 0.55 and desk_big is not None:
-                screen.blit(desk_big, (-int(sw * 0.05) + ox, -int(sh * 0.05) + oy))
-            else:
-                screen.blit(desk, (ox, oy))
+        if tiles:
+            gx = int(math.sin(t * 7) * (2 + 6 * beat))
+            gy = int(math.cos(t * 6) * (2 + 6 * beat))
+            for tl in tiles:
+                sub, hx, hy, ph = tl
+                amp = 5 + 17 * beat
+                ox = int(math.sin(t * 11 + ph) * amp) + gx
+                oy = int(math.cos(t * 9 + ph * 1.3) * amp) + gy
+                screen.blit(sub, (hx + ox, hy + oy))
 
         spawn += dt
         if spawn > 2.2 and len(flyers) < 8:
@@ -327,13 +329,20 @@ def main():
         if TEST and frames > 240:
             running = False
 
-    try:
-        pygame.mixer.music.fadeout(300)
-        pygame.time.wait(300)
-    except Exception:
-        pass
+    if audio_mode == "winsound":
+        try:
+            import winsound
+            winsound.PlaySound(None, 0)
+        except Exception:
+            pass
+    else:
+        try:
+            pygame.mixer.music.fadeout(300)
+            pygame.time.wait(300)
+        except Exception:
+            pass
     pygame.quit()
 
 
 if __name__ == "__main__":
-    main()
+    main()        
