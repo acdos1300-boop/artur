@@ -11,7 +11,7 @@ else:
     BASE = os.path.dirname(os.path.abspath(__file__))
 
 DURATION = 90
-VOLUME = 0.6
+VOLUME = 0.7
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 SND_EXT = (".ogg", ".wav", ".mp3")
 
@@ -31,23 +31,59 @@ def get_volume_ctl():
     if TEST:
         return None
     try:
-        import comtypes
+        import ctypes
+        from ctypes import POINTER, byref, c_void_p, c_float, c_int, c_long, c_wchar_p
+        from ctypes import wintypes
+
+        ole32 = ctypes.windll.ole32
         try:
-            import tempfile
-            import comtypes.client
-            comtypes.client.gen_dir = tempfile.mkdtemp()
+            ole32.CoInitialize(None)
         except Exception:
             pass
-        try:
-            comtypes.CoInitialize()
-        except Exception:
-            pass
-        from ctypes import cast, POINTER
-        from comtypes import CLSCTX_ALL
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-        dev = AudioUtilities.GetSpeakers()
-        iface = dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        return cast(iface, POINTER(IAudioEndpointVolume))
+
+        class GUID(ctypes.Structure):
+            _fields_ = [("Data1", ctypes.c_uint32),
+                        ("Data2", ctypes.c_uint16),
+                        ("Data3", ctypes.c_uint16),
+                        ("Data4", ctypes.c_ubyte * 8)]
+
+        def guid(s):
+            g = GUID()
+            ole32.CLSIDFromString(c_wchar_p(s), byref(g))
+            return g
+
+        CLSID_ENUM = guid("{BCDE0395-E52F-467C-8E3D-C4579291692E}")
+        IID_ENUM = guid("{A95664D2-9614-4F35-A746-DE8DB63617E6}")
+        IID_EPV = guid("{5CDF2C82-841E-4546-9722-0CF74078229A}")
+        CLSCTX_ALL = 23
+
+        def call(pobj, idx, restype, argtypes, *args):
+            vtbl_addr = ctypes.cast(pobj, POINTER(c_void_p))[0]
+            arr = ctypes.cast(c_void_p(vtbl_addr), POINTER(c_void_p))
+            fp = arr[idx]
+            proto = ctypes.CFUNCTYPE(restype, c_void_p, *argtypes)
+            return proto(fp)(pobj, *args)
+
+        enum = c_void_p()
+        if ole32.CoCreateInstance(byref(CLSID_ENUM), None, CLSCTX_ALL, byref(IID_ENUM), byref(enum)) != 0 or not enum.value:
+            return None
+        dev = c_void_p()
+        if call(enum, 4, c_long, (c_int, c_int, POINTER(c_void_p)), 0, 0, byref(dev)) != 0 or not dev.value:
+            return None
+        epv = c_void_p()
+        if call(dev, 3, c_long, (POINTER(GUID), wintypes.DWORD, c_void_p, POINTER(c_void_p)),
+                byref(IID_EPV), CLSCTX_ALL, None, byref(epv)) != 0 or not epv.value:
+            return None
+
+        def apply(level):
+            try:
+                call(epv, 14, c_long, (c_int, c_void_p), 0, None)
+                call(epv, 7, c_long, (c_float, c_void_p), c_float(level), None)
+            except Exception:
+                pass
+
+        apply(VOLUME)
+        return apply
     except Exception:
         return None
 
@@ -106,11 +142,10 @@ def set_volume_keys(pct):
 
 
 def hold_volume(ctl, level):
-    if not ctl:
+    if ctl is None:
         return
     try:
-        ctl.SetMute(0, None)
-        ctl.SetMasterVolumeLevelScalar(level, None)
+        ctl(level)
     except Exception:
         pass
 
@@ -232,11 +267,11 @@ def main():
     ask()
     pil_desk = grab_desktop_pil()
     vol = get_volume_ctl()
-    set_volume_keys(int(VOLUME * 100))
-    hold_volume(vol, VOLUME)
-
     vol_stop = [False]
-    if vol is None and not TEST:
+    if vol is not None:
+        hold_volume(vol, VOLUME)
+    elif not TEST:
+        set_volume_keys(int(VOLUME * 100))
         import threading
 
         def _locker():
@@ -350,7 +385,7 @@ def main():
         t += dt
         frames += 1
 
-        if t - last_vol > 0.2:
+        if t - last_vol > 0.05:
             last_vol = t
             hold_volume(vol, VOLUME)
         if not TEST and t - last_focus > 0.05:
