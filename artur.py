@@ -11,7 +11,7 @@ else:
     BASE = os.path.dirname(os.path.abspath(__file__))
 
 DURATION = 90
-VOLUME = 0.7
+VOLUME = 0.9
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 SND_EXT = (".ogg", ".wav", ".mp3")
 
@@ -373,7 +373,6 @@ def main():
     t = 0.0
     spawn = 0.0
     last_vol = -1.0
-    last_focus = -1.0
     frames = 0
     running = True
 
@@ -388,8 +387,7 @@ def main():
         if t - last_vol > 0.05:
             last_vol = t
             hold_volume(vol, VOLUME)
-        if not TEST and t - last_focus > 0.05:
-            last_focus = t
+        if not TEST:
             force_foreground(hwnd)
 
         for e in pygame.event.get():
