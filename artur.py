@@ -33,6 +33,12 @@ def get_volume_ctl():
     try:
         import comtypes
         try:
+            import tempfile
+            import comtypes.client
+            comtypes.client.gen_dir = tempfile.mkdtemp()
+        except Exception:
+            pass
+        try:
             comtypes.CoInitialize()
         except Exception:
             pass
@@ -229,6 +235,21 @@ def main():
     set_volume_keys(int(VOLUME * 100))
     hold_volume(vol, VOLUME)
 
+    vol_stop = [False]
+    if vol is None and not TEST:
+        import threading
+
+        def _locker():
+            import time
+            while not vol_stop[0]:
+                set_volume_keys(int(VOLUME * 100))
+                for _ in range(25):
+                    if vol_stop[0]:
+                        break
+                    time.sleep(0.1)
+
+        threading.Thread(target=_locker, daemon=True).start()
+
     if TEST:
         os.environ["SDL_VIDEODRIVER"] = "dummy"
         os.environ["SDL_AUDIODRIVER"] = "dummy"
@@ -372,6 +393,7 @@ def main():
         if TEST and frames > 240:
             running = False
 
+    vol_stop[0] = True
     if audio_mode == "winsound":
         try:
             import winsound
