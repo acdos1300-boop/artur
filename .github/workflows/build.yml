@@ -17,8 +17,8 @@ jobs:
           for f in *.jpg *.jpeg *.png *.ogg *.wav *.mp3; do
             [ -f "$f" ] && args+=(--add-data "$f;.")
           done
-          pyinstaller --onefile --noconsole --hidden-import comtypes --hidden-import pycaw "${args[@]}" --name ARTUR artur.py
+          pyinstaller --onefile --noconsole --hidden-import comtypes --hidden-import pycaw "${args[@]}" --name DANCE artur.py
       - uses: actions/upload-artifact@v4
         with:
-          name: ARTUR-exe
-          path: dist/ARTUR.exe
+          name: DANCE-exe
+          path: dist/DANCE.exe
