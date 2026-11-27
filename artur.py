@@ -11,6 +11,7 @@ else:
     BASE = os.path.dirname(os.path.abspath(__file__))
 
 DURATION = 90
+INTRO = 5
 VOLUME = 0.9
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 SND_EXT = (".ogg", ".wav", ".mp3")
@@ -263,6 +264,36 @@ class Flyer:
         screen.blit(self._surf, self._surf.get_rect(center=(int(self.x), int(self.y))))
 
 
+def draw_intro(screen, pygame, sw, sh, t, big_font, mid_font, small_font):
+    screen.fill((8, 0, 0) if random.random() > 0.06 else (32, 0, 0))
+    pygame.draw.rect(screen, (150, 10, 16), (0, 0, sw, 10))
+    pygame.draw.rect(screen, (150, 10, 16), (0, sh - 10, sw, 10))
+    cx = sw // 2
+    red = (235, 25, 25)
+    ty = sh // 2 - int(sh * 0.28)
+    tw = max(60, sh // 9)
+    th = int(tw * 1.5)
+    pygame.draw.polygon(screen, red, [(cx, ty), (cx - tw, ty + th), (cx + tw, ty + th)], max(6, sh // 120))
+    bar_w = max(6, tw // 9)
+    pygame.draw.rect(screen, red, (cx - bar_w // 2, ty + int(th * 0.34), bar_w, int(th * 0.32)))
+    pygame.draw.circle(screen, red, (cx, ty + int(th * 0.80)), bar_w)
+    jitter = random.randint(-5, 5) if random.random() < 0.3 else 0
+    if random.random() > 0.08:
+        for i, line in enumerate(("ВАШ КОМПЬЮТЕР", "ЗАБЛОКИРОВАН")):
+            y = sh // 2 + 35 + i * big_font.get_height()
+            shadow = big_font.render(line, True, (85, 0, 0))
+            main = big_font.render(line, True, red)
+            screen.blit(shadow, shadow.get_rect(center=(cx - 5 + jitter, y + 2)))
+            screen.blit(main, main.get_rect(center=(cx + jitter, y)))
+    if int(t * 4) % 2 == 0:
+        sub = mid_font.render("ДОСТУП ЗАПРЕЩЁН", True, (255, 70, 70))
+        screen.blit(sub, sub.get_rect(center=(cx, sh // 2 + 45 + 2 * big_font.get_height())))
+    warn = small_font.render("НЕ ПЫТАЙТЕСЬ ЗАКРЫТЬ ОКНО", True, (175, 30, 30))
+    screen.blit(warn, warn.get_rect(center=(cx, sh // 2 + 100 + 2 * big_font.get_height())))
+    for _ in range(45):
+        screen.fill((120, 0, 0), (random.randint(0, sw), random.randint(0, sh), 2, 2))
+
+
 def main():
     ask()
     pil_desk = grab_desktop_pil()
@@ -305,7 +336,7 @@ def main():
         except Exception:
             pass
     sw, sh = screen.get_size()
-    pygame.display.set_caption("ARTUR")
+    pygame.display.set_caption("DANCE")
     pygame.mouse.set_visible(False)
 
     hwnd = None
@@ -348,6 +379,35 @@ def main():
         s.blit(tx, tx.get_rect(center=(210, 210)))
         base_imgs.append(s)
 
+    running = True
+    FOCUS_LOST = getattr(pygame, "WINDOWFOCUSLOST", -999)
+    MINIMIZED = getattr(pygame, "WINDOWMINIMIZED", -998)
+
+    big_font = pygame.font.SysFont("arial", max(30, sh // 11), bold=True)
+    mid_font = pygame.font.SysFont("arial", max(16, sh // 26), bold=True)
+    small_font = pygame.font.SysFont("arial", max(13, sh // 40), bold=True)
+    intro_clock = pygame.time.Clock()
+    it = 0.0
+    intro_vol = -1.0
+    intro_limit = 0.3 if TEST else INTRO
+    while it < intro_limit and running:
+        d = min(intro_clock.tick(60) / 1000.0, 0.05)
+        it += d
+        if it - intro_vol > 0.05:
+            intro_vol = it
+            hold_volume(vol, VOLUME)
+        if not TEST:
+            force_foreground(hwnd)
+        for e in pygame.event.get():
+            if e.type == pygame.KEYDOWN and e.key == pygame.K_q:
+                mods = pygame.key.get_mods()
+                if (mods & pygame.KMOD_CTRL) and (mods & pygame.KMOD_SHIFT):
+                    running = False
+            elif e.type == FOCUS_LOST or e.type == MINIMIZED:
+                force_foreground(hwnd)
+        draw_intro(screen, pygame, sw, sh, it, big_font, mid_font, small_font)
+        pygame.display.flip()
+
     wav_songs = asset_files((".wav",))
     other_songs = asset_files((".ogg", ".mp3"))
     audio_mode = None
@@ -374,10 +434,6 @@ def main():
     spawn = 0.0
     last_vol = -1.0
     frames = 0
-    running = True
-
-    FOCUS_LOST = getattr(pygame, "WINDOWFOCUSLOST", -999)
-    MINIMIZED = getattr(pygame, "WINDOWMINIMIZED", -998)
 
     while running:
         dt = min(clock.tick(60) / 1000.0, 0.05)
